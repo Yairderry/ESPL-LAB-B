@@ -9,38 +9,99 @@ typedef struct virus
     unsigned char *sig;
 } virus;
 
+typedef struct link link;
+struct link
+{
+    link *nextVirus;
+    virus *vir;
+};
+
+struct fun_desc
+{
+    char *name;
+    link *(*fun)(link *);
+};
+
 virus *readVirus(FILE *filename);
 void printVirus(virus *virus, FILE *output);
 void printHex(unsigned char *buffer, int length, FILE *output);
+void list_print(link *virus_list, FILE *output);
+link *list_append(link *virus_list, virus *data);
+void list_free(link *virus_list);
+void virus_free(virus *virus);
+void printOptions(struct fun_desc *menu);
+
+link *loadSignatures(link *list);
+link *printSignatures(link *list);
+link *detectViruses(link *list);
+link *fixFile(link *list);
+link *quit(link *list);
 
 int main(int argc, char **argv)
 {
-    FILE *inputFile = fopen("signatures-L", "r");
-    FILE *outputFile = fopen("test", "w");
-    char buffer[5];
+    link *list = NULL;
+
+    struct fun_desc menu[] = {{"Load signatures", loadSignatures}, {"Print signatures", printSignatures}, {"Detect viruses", detectViruses}, {"Fix file", fixFile}, {"Quit", quit}, {NULL, NULL}};
+
+    printOptions(menu);
+
+    char buffer[256];
     char *line;
-    virus *currVirus;
 
-    if ((line = fgets(buffer, 5, inputFile)) != NULL)
+    while ((line = fgets(buffer, 256, stdin)) != NULL)
     {
-        if (strncmp(line, "VISL", 4) != 0)
+        printf("\n");
+        int prompt = line[0] - 48;
+        if (1 <= prompt && prompt <= 5)
         {
-            fprintf(stderr, "not little endian");
-            fclose(inputFile);
-            exit(0);
+            list = menu[prompt - 1].fun(list);
         }
+        else
+        {
+            printf("Not within bounds\n");
+            quit(list);
+        }
+
+        printOptions(menu);
     }
 
-    while ((currVirus = readVirus(inputFile)) != NULL)
-    {
-        printVirus(currVirus, outputFile);
-        free(currVirus->sig);
-        free(currVirus);
-    }
-
-    fclose(inputFile);
-    fclose(outputFile);
+    quit(list);
     return 0;
+}
+
+void list_print(link *virus_list, FILE *output)
+{
+    if (virus_list == NULL)
+        return;
+
+    printVirus(virus_list->vir, output);
+    fprintf(output, "\n\n");
+    list_print(virus_list->nextVirus, output);
+}
+
+link *list_append(link *virus_list, virus *data)
+{
+    link *newLink = malloc(sizeof(link));
+    newLink->nextVirus = virus_list;
+    newLink->vir = data;
+
+    return newLink;
+}
+
+void list_free(link *virus_list)
+{
+    if (virus_list == NULL)
+        return;
+
+    list_free(virus_list->nextVirus);
+    virus_free(virus_list->vir);
+    free(virus_list);
+}
+
+void virus_free(virus *virus)
+{
+    free(virus->sig);
+    free(virus);
 }
 
 virus *readVirus(FILE *filename)
@@ -70,6 +131,78 @@ void printHex(unsigned char *buffer, int length, FILE *output)
 {
     for (int i = 0; i < length; i++)
         fprintf(output, "%02hhX ", buffer[i]);
+}
 
-    fprintf(output, "\n\n");
+void printOptions(struct fun_desc *menu)
+{
+    printf("Please choose a function (ctrl^D for exit):\n");
+    for (int i = 1; i <= 5; i++)
+        printf("%d)  %s\n", i, menu[i - 1].name);
+    printf("Option: ");
+}
+
+link *quit(link *list)
+{
+    list_free(list);
+    exit(0);
+}
+
+link *loadSignatures(link *list)
+{
+    char filename[256];
+    char buffer[5];
+    char *line;
+    virus *currVirus;
+    FILE *inputFile;
+
+    if (fgets(filename, 256, stdin) == NULL)
+    {
+        fprintf(stderr, "couldn't read line");
+        exit(0);
+    }
+
+    filename[strlen(filename) - 1] = '\0';
+    if ((inputFile = fopen(filename, "r")) == NULL)
+    {
+        fprintf(stderr, "couldn't read file");
+        exit(0);
+    }
+
+    if ((line = fgets(buffer, 5, inputFile)) != NULL)
+    {
+        if (strncmp(line, "VISL", 4) != 0)
+        {
+            fprintf(stderr, "not little endian");
+            fclose(inputFile);
+            exit(0);
+        }
+    }
+
+    while ((currVirus = readVirus(inputFile)) != NULL)
+        list = list_append(list, currVirus);
+
+    fclose(inputFile);
+
+    return list;
+}
+
+link *printSignatures(link *list)
+{
+    list_print(list, stdout);
+
+    return list;
+}
+
+link *detectViruses(link *list)
+{
+    printf("Not implemented\n");
+
+    return list;
+}
+
+link *fixFile(link *list)
+{
+    printf("Not implemented\n");
+
+    return list;
 }
