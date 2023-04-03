@@ -19,7 +19,7 @@ struct link
 struct fun_desc
 {
     char *name;
-    link *(*fun)(link *);
+    link *(*fun)(link *, char *);
 };
 
 virus *readVirus(FILE *filename);
@@ -31,41 +31,44 @@ void list_free(link *virus_list);
 void virus_free(virus *virus);
 void printOptions(struct fun_desc *menu);
 
-link *loadSignatures(link *list);
-link *printSignatures(link *list);
-link *detectViruses(link *list);
-link *fixFile(link *list);
-link *quit(link *list);
+link *load_signatures(link *list, char *fileName);
+link *print_signatures(link *list, char *fileName);
+link *detect_viruses(link *list, char *fileName);
+link *fix_file(link *list, char *fileName);
+link *quit(link *list, char *fileName);
+int detect_virus(virus *virus, int size, char *buffer, int isDetection, char *fileName);
+int get_file_size(FILE *file);
+void neutralize_virus(char *fileName, int signatureOffset);
 
 int main(int argc, char **argv)
 {
     link *list = NULL;
+    char *fileName = "";
+    char lineBuffer[256];
+    char *line;
+    struct fun_desc menu[] = {{"Load signatures", load_signatures}, {"Print signatures", print_signatures}, {"Detect viruses", detect_viruses}, {"Fix file", fix_file}, {"Quit", quit}, {NULL, NULL}};
 
-    struct fun_desc menu[] = {{"Load signatures", loadSignatures}, {"Print signatures", printSignatures}, {"Detect viruses", detectViruses}, {"Fix file", fixFile}, {"Quit", quit}, {NULL, NULL}};
+    if (argc > 1)
+        fileName = argv[1];
 
     printOptions(menu);
 
-    char buffer[256];
-    char *line;
-
-    while ((line = fgets(buffer, 256, stdin)) != NULL)
+    while ((line = fgets(lineBuffer, 256, stdin)) != NULL)
     {
         printf("\n");
         int prompt = line[0] - 48;
         if (1 <= prompt && prompt <= 5)
-        {
-            list = menu[prompt - 1].fun(list);
-        }
+            list = menu[prompt - 1].fun(list, fileName);
         else
         {
             printf("Not within bounds\n");
-            quit(list);
+            quit(list, fileName);
         }
 
         printOptions(menu);
     }
 
-    quit(list);
+    quit(list, fileName);
     return 0;
 }
 
@@ -141,16 +144,16 @@ void printOptions(struct fun_desc *menu)
     printf("Option: ");
 }
 
-link *quit(link *list)
+link *quit(link *list, char *fileName)
 {
     list_free(list);
     exit(0);
 }
 
-link *loadSignatures(link *list)
+link *load_signatures(link *list, char *fileName)
 {
     char filename[256];
-    char buffer[5];
+    char beggingBuffer[5];
     char *line;
     virus *currVirus;
     FILE *inputFile;
@@ -168,7 +171,7 @@ link *loadSignatures(link *list)
         exit(0);
     }
 
-    if ((line = fgets(buffer, 5, inputFile)) != NULL)
+    if ((line = fgets(beggingBuffer, 5, inputFile)) != NULL)
     {
         if (strncmp(line, "VISL", 4) != 0)
         {
@@ -186,23 +189,85 @@ link *loadSignatures(link *list)
     return list;
 }
 
-link *printSignatures(link *list)
+link *print_signatures(link *list, char *fileName)
 {
     list_print(list, stdout);
 
     return list;
 }
 
-link *detectViruses(link *list)
+link *detect_viruses(link *list, char *fileName)
 {
-    printf("Not implemented\n");
+    char suspectedFileBuffer[10000];
+    FILE *suspectedFile = fopen(fileName, "rb");
+
+    if (suspectedFile == NULL)
+        return list;
+
+    fread(suspectedFileBuffer, sizeof(suspectedFileBuffer), 1, suspectedFile);
+    int size = get_file_size(suspectedFile);
+
+    link *currLink = list;
+    while (currLink != NULL)
+    {
+        printf(detect_virus(currLink->vir, size, suspectedFileBuffer, 1, fileName) == 1 && currLink->nextVirus != NULL ? "\n" : "");
+        currLink = currLink->nextVirus;
+    }
 
     return list;
 }
 
-link *fixFile(link *list)
+int detect_virus(virus *virus, int size, char *buffer, int isDetetion, char *fileName)
 {
-    printf("Not implemented\n");
+    for (int i = 0; i <= size - virus->SigSize; i++)
+    {
+        if (memcmp(virus->sig, buffer + i, virus->SigSize) == 0)
+        {
+            if (isDetetion)
+                printf("The starting byte location in the suspected file: %d\nThe virus name: %s\nThe size of the virus signature: %d\n", i, virus->virusName, virus->SigSize);
+            else
+                neutralize_virus(fileName, i);
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
+int get_file_size(FILE *file)
+{
+    fseek(file, 0L, SEEK_END);
+    int file_size = ftell(file);
+    rewind(file);
+    return file_size;
+}
+
+link *fix_file(link *list, char *fileName)
+{
+    char suspectedFileBuffer[10000];
+    FILE *suspectedFile = fopen(fileName, "rb");
+
+    if (suspectedFile == NULL)
+        return list;
+
+    fread(suspectedFileBuffer, sizeof(suspectedFileBuffer), 1, suspectedFile);
+    int size = get_file_size(suspectedFile);
+
+    link *currLink = list;
+    while (currLink != NULL)
+    {
+        detect_virus(currLink->vir, size, suspectedFileBuffer, 0, fileName);
+        currLink = currLink->nextVirus;
+    }
 
     return list;
+}
+
+void neutralize_virus(char *fileName, int signatureOffset)
+{
+    FILE *file = fopen(fileName, "r+b");
+    fseek(file, signatureOffset, SEEK_SET);
+    char ret = 0xc3;
+    fwrite(&ret, 1, 1, file);
+    fclose(file);
 }
